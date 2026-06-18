@@ -1,0 +1,37 @@
+{
+  "name": "pi-opencode-go-cache",
+  "version": "0.1.2",
+  "description": "Brings OpenCode CLI–equivalent prompt caching to Pi for the OpenCode Go provider (kimi, deepseek, glm, mimo, qwen, minimax). Sets prompt_cache_key, 24h retention, and Anthropic-style cache_control markers on every request.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "opencode-go",
+    "prompt-cache",
+    "cache-control"
+  ],
+  "license": "MIT",
+  "author": "nnocte",
+  "type": "module",
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "echo 'nothing to check'"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/opencode-go-cache.ts"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nnocte/pi-opencode-go-cache.git"
+  },
+  "homepage": "https://github.com/nnocte/pi-opencode-go-cache",
+  "bugs": {
+    "url": "https://github.com/nnocte/pi-opencode-go-cache/issues"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-ai": "*"
+  }
+}

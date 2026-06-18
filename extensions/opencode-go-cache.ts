@@ -1,0 +1,331 @@
+/**
+ * opencode-go-cache — Pi extension for OpenCode Go prompt caching.
+ *
+ * The OpenCode Go gateway (https://opencode.ai/zen/go) caches the request
+ * prefix automatically, but only:
+ *   • Up to ~5 minutes by default (short retention)
+ *   • As a single, end-of-prefix breakpoint (no fine-grained control)
+ *   • Without a session-scoped key (cache lookup uses just the prefix hash)
+ *
+ * OpenCode CLI works around this by:
+ *   1. Setting `prompt_cache_key` to `sessionID` so the cache is scoped per
+ *      session and survives across many turns.
+ *   2. Adding Anthropic-style `cache_control: { type: "ephemeral" }` markers
+ *      to the system prompt, the last tool, and the last two conversation
+ *      messages — which produces multiple cache breakpoints and dramatically
+ *      increases the hit rate as the conversation grows.
+ *   3. Requesting `prompt_cache_retention: "24h"` so the cache survives long
+ *      pauses between turns.
+ *
+ * Pi's built-in openai-completions provider only sets `prompt_cache_key` for
+ * `api.openai.com` URLs (or when `cacheRetention === "long"`), and it never
+ * adds `cache_control` markers to openai-completions messages for
+ * opencode-go. Its anthropic provider does add `cache_control`, but only on
+ * the system prompt + last tool + last user message (1 breakpoint) and never
+ * sets `prompt_cache_retention`.
+ *
+ * This extension applies the full OpenCode CLI caching strategy to every
+ * opencode-go request, for both `openai-completions` and `anthropic-messages`
+ * APIs. It runs entirely in the extension layer (jiti-loaded), so the
+ * upstream pi-ai package stays untouched and the change is easy to remove
+ * (just delete this file and `/reload`).
+ *
+ * Verification (live against the real gateway with the bundled API key):
+ *   • kimi-k2.7-code  (openai-completions): cache goes from 0/N to N/N on
+ *     the 2nd call, and stays N/N across many turns.
+ *   • minimax-m3      (anthropic-messages): same.
+ *
+ * Usage: install via `pi install npm:pi-opencode-go-cache`, or drop this
+ * file at `~/.pi/agent/extensions/opencode-go-cache.ts` and (re)start pi.
+ * No settings changes required.
+ */
+
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+const PROVIDER_ID = "opencode-go";
+const MAX_PROMPT_CACHE_KEY_LEN = 64;
+
+/**
+ * Anthropic-style cache breakpoint marker. `ttl: "1h"` matches OpenCode CLI's
+ * request for long-lived cache, which the gateway honours and which keeps
+ * the cache hot across long Pi sessions.
+ */
+const CACHE_CONTROL_EPHEMERAL = Object.freeze({ type: "ephemeral", ttl: "1h" });
+
+/**
+ * Clamp the prompt cache key to the gateway's documented max length
+ * (matches the helper in `@earendil-works/pi-ai/providers/openai-prompt-cache`).
+ * The Pi session id is a uuidv7 (36 chars) so this is a no-op in practice,
+ * but we keep the guard for safety.
+ */
+function clampPromptCacheKey(key: string | undefined): string | undefined {
+    if (!key) return undefined;
+    if (key.length <= MAX_PROMPT_CACHE_KEY_LEN) return key;
+    return Array.from(key).slice(0, MAX_PROMPT_CACHE_KEY_LEN).join("");
+}
+
+function isOpencodeGoModel(model: { provider?: string; baseUrl?: string } | undefined): boolean {
+    if (!model) return false;
+    if (model.provider !== PROVIDER_ID) return false;
+    return true;
+}
+
+/**
+ * Add an Anthropic-style cache breakpoint to a message. Handles both the
+ * string-content form (common in openai-completions) and the array form
+ * (common in anthropic-messages and image-bearing openai-completions).
+ *
+ * Mutates the message in place and returns true iff a marker was placed.
+ */
+function stampCacheControlOnMessage(
+    message: Record<string, unknown>,
+    marker: Record<string, unknown>,
+): boolean {
+    const content = message.content;
+    if (typeof content === "string") {
+        if (content.length === 0) return false;
+        message.content = [{ type: "text", text: content, cache_control: marker }];
+        return true;
+    }
+    if (Array.isArray(content) && content.length > 0) {
+        // Walk backwards and stamp the last text/image/tool part. If we find a
+        // part that already has cache_control, don't double-stamp.
+        for (let i = content.length - 1; i >= 0; i--) {
+            const part = content[i] as Record<string, unknown>;
+            if (!part || typeof part !== "object") continue;
+            if (part.cache_control) return true;
+            if (
+                part.type === "text" ||
+                part.type === "image" ||
+                part.type === "image_url" ||
+                part.type === "tool_use" ||
+                part.type === "tool_result"
+            ) {
+                part.cache_control = marker;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Apply the OpenCode CLI "2 system + 2 final" caching strategy to the
+ * message array. This is the single most important piece: it creates
+ * multiple cache breakpoints so the cache is still useful when the last
+ * user message changes (which is every turn).
+ */
+function applyConversationCacheBreakpoints(
+    messages: Array<Record<string, unknown>>,
+    marker: Record<string, unknown>,
+): void {
+    // Up to 2 system/developer messages from the front.
+    let systemStamped = 0;
+    for (const msg of messages) {
+        const role = msg.role;
+        if (role === "system" || role === "developer") {
+            if (stampCacheControlOnMessage(msg, marker)) {
+                systemStamped += 1;
+                if (systemStamped >= 2) break;
+            }
+        } else {
+            break;
+        }
+    }
+    // Last 2 user/assistant messages from the end.
+    let finalStamped = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        const role = msg.role;
+        if (role === "user" || role === "assistant") {
+            if (stampCacheControlOnMessage(msg, marker)) {
+                finalStamped += 1;
+                if (finalStamped >= 2) break;
+            }
+        }
+    }
+}
+
+function applyOpenAICompletionsCacheControl(
+    payload: Record<string, unknown>,
+    marker: Record<string, unknown>,
+): void {
+    const messages = payload.messages;
+    if (Array.isArray(messages) && messages.length > 0) {
+        applyConversationCacheBreakpoints(
+            messages as Array<Record<string, unknown>>,
+            marker,
+        );
+    }
+    // Tools: stamp the last tool so the tool schema is cached too.
+    const tools = payload.tools;
+    if (Array.isArray(tools) && tools.length > 0) {
+        const lastTool = tools[tools.length - 1] as Record<string, unknown>;
+        if (lastTool && typeof lastTool === "object") {
+            lastTool.cache_control = marker;
+        }
+    }
+}
+
+function applyAnthropicCacheControl(
+    payload: Record<string, unknown>,
+    marker: Record<string, unknown>,
+): void {
+    // System prompt: string or array of text blocks.
+    const system = payload.system;
+    if (typeof system === "string") {
+        if (system.length > 0) {
+            payload.system = [{ type: "text", text: system, cache_control: marker }];
+        }
+    } else if (Array.isArray(system) && system.length > 0) {
+        // Mirror the 2-block budget used for conversation messages.
+        let stamped = 0;
+        for (let i = 0; i < system.length && stamped < 2; i++) {
+            const part = system[i] as Record<string, unknown>;
+            if (part && part.type === "text") {
+                part.cache_control = marker;
+                stamped += 1;
+            }
+        }
+    }
+    // Conversation messages.
+    const messages = payload.messages;
+    if (Array.isArray(messages) && messages.length > 0) {
+        applyConversationCacheBreakpoints(
+            messages as Array<Record<string, unknown>>,
+            marker,
+        );
+    }
+    // Tools.
+    const tools = payload.tools;
+    if (Array.isArray(tools) && tools.length > 0) {
+        const lastTool = tools[tools.length - 1] as Record<string, unknown>;
+        if (lastTool && typeof lastTool === "object") {
+            lastTool.cache_control = marker;
+        }
+    }
+}
+
+/**
+ * Strip a stale `cache_control` so we can re-stamp. We re-stamp on every
+ * request, so any leftover from a previous turn (e.g. via tool_result
+ * round-tripping) would otherwise be in the wrong place.
+ */
+function stripStaleCacheControl(payload: Record<string, unknown>): void {
+    const visit = (node: unknown): void => {
+        if (!node || typeof node !== "object") return;
+        if (Array.isArray(node)) {
+            for (const item of node) visit(item);
+            return;
+        }
+        const obj = node as Record<string, unknown>;
+        if (obj.cache_control && typeof obj.cache_control === "object") {
+            const cc = obj.cache_control as Record<string, unknown>;
+            if (cc.type === "ephemeral") {
+                delete obj.cache_control;
+            }
+        }
+        for (const key of Object.keys(obj)) {
+            // Don't recurse into the marker object itself or into scalar fields.
+            if (key === "cache_control") continue;
+            const val = obj[key];
+            if (val && typeof val === "object") visit(val);
+        }
+    };
+    // Only walk the parts of the payload that hold messages / tools / system.
+    if ("messages" in payload) visit(payload.messages);
+    if ("system" in payload) visit(payload.system);
+    if ("tools" in payload) visit(payload.tools);
+}
+
+export default function (pi: ExtensionAPI): void {
+    let lastStatusKey: string | undefined;
+    const setStatus = (ctx: { ui: { setStatus: (k: string, v: string) => void } }, key: string, value: string): void => {
+        if (lastStatusKey && lastStatusKey !== key) {
+            ctx.ui.setStatus(lastStatusKey, "");
+        }
+        lastStatusKey = key;
+        ctx.ui.setStatus(key, value);
+    };
+
+    pi.on("session_start", (_event, ctx) => {
+        if (ctx.hasUI) {
+            ctx.ui.notify("opencode-go-cache: prompt caching enabled for opencode-go", "info");
+        }
+    });
+
+    pi.on("before_provider_request", (event, ctx) => {
+        // The whole body is wrapped in a try/catch so that a bug here can
+        // never break the LLM call. Worst case: the request goes out
+        // unchanged (caching skipped for this turn) and the user still
+        // gets an answer.
+        try {
+            const model = ctx.model as
+                | { provider?: string; baseUrl?: string; api?: string }
+                | undefined;
+            if (!isOpencodeGoModel(model)) {
+                // Clear status when switching to a non-opencode-go model.
+                if (lastStatusKey && ctx.hasUI) {
+                    ctx.ui.setStatus(lastStatusKey, "");
+                    lastStatusKey = undefined;
+                }
+                return undefined;
+            }
+
+            const payload = event.payload;
+            if (!payload || typeof payload !== "object") return undefined;
+            const payloadObj = payload as Record<string, unknown>;
+            const api = model?.api;
+
+            // Stable, per-session cache key. Pi's session id is a uuidv7 so
+            // collisions are impossible and the clamp is a defensive no-op.
+            const sessionId = ctx.sessionManager.getSessionId();
+            const cacheKey = clampPromptCacheKey(sessionId);
+            if (cacheKey) {
+                payloadObj.prompt_cache_key = cacheKey;
+                // 24h retention keeps the cache alive across long Pi sessions.
+                // The gateway accepts "24h" for openai-completions and the
+                // "1h" ttl for anthropic-style cache_control markers.
+                payloadObj.prompt_cache_retention = "24h";
+            }
+
+            // Wipe any stale markers from previous turns so the breakpoints
+            // land exactly where we want them this turn.
+            stripStaleCacheControl(payloadObj);
+
+            if (api === "openai-completions") {
+                applyOpenAICompletionsCacheControl(payloadObj, CACHE_CONTROL_EPHEMERAL);
+            } else if (api === "anthropic-messages") {
+                applyAnthropicCacheControl(payloadObj, CACHE_CONTROL_EPHEMERAL);
+            }
+            // Unknown api: leave the payload as-is (still benefits from
+            // prompt_cache_key + 24h retention).
+
+            // Show a compact status in the TUI footer so users can see caching
+            // is active.
+            if (ctx.hasUI) {
+                setStatus(ctx, "opencode-go-cache", `cache: ${api ?? "?"}`);
+            }
+
+            return payloadObj;
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (ctx.hasUI) {
+                ctx.ui.notify(
+                    `opencode-go-cache: ${msg} (request sent without caching)`,
+                    "warning",
+                );
+            }
+            return undefined;
+        }
+    });
+
+    // Drop the status when the session ends so we don't leave a stale
+    // entry on the next session's footer.
+    pi.on("session_shutdown", (_event, ctx) => {
+        if (lastStatusKey && ctx.hasUI) {
+            ctx.ui.setStatus(lastStatusKey, "");
+            lastStatusKey = undefined;
+        }
+    });
+}
