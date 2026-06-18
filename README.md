@@ -143,13 +143,13 @@ On a long coding session, the deepseek and mimo models see roughly
 Setting `PI_CACHE_RETENTION=long` only does two of the three things
 OpenCode CLI does to get cheap cache hits on opencode-go:
 
-|                                                                    | `PI_CACHE_RETENTION=long` | OpenCode CLI | this extension |
-| ------------------------------------------------------------------ | :-----------------------: | :----------: | :------------: |
-| `prompt_cache_retention: "24h"` (vs. ~5 min default)               |             ✅             |      ✅       |       ✅        |
-| `prompt_cache_key` (per-session, not opportunistic)                |             ✅             |      ✅       |       ✅        |
-| `cache_control` markers on system + last 2 messages + last tool    |             ❌             |      ✅       |       ✅        |
-| Works for `anthropic-messages` models too (qwen, minimax)          |             ❌             |      ✅       |       ✅        |
-| Single source of truth (no env vars, no `models.json` overrides)   |             ❌             |      ✅       |       ✅        |
+|                                                                    | `PI_CACHE_RETENTION=long`   | OpenCode CLI  | opencode-go-cache |
+| ------------------------------------------------------------------ | :-----------------------:   | :----------:  |  :------------:   |
+| `prompt_cache_retention: "24h"` (vs. ~5 min default)               |             ✅             |      ✅       |        ✅        |
+| `prompt_cache_key` (per-session, not opportunistic)                |             ✅             |      ✅       |        ✅        |
+| `cache_control` markers on system + last 2 messages + last tool    |             ❌             |      ✅       |        ✅        |
+| Works for `anthropic-messages` models too (qwen, minimax)          |             ❌             |      ✅       |        ✅        |
+| Single source of truth (no env vars, no `models.json` overrides)   |             ❌             |      ✅       |        ✅        |
 
 Pi's `openai-completions` provider already drops `cache_control` markers
 for `openai-completions` when `cacheControlFormat: "anthropic"` is set in

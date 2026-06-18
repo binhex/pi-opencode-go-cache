@@ -254,6 +254,22 @@ export default function (pi: ExtensionAPI): void {
         }
     });
 
+    // Keep the footer status in sync with the active model immediately when
+    // the user switches models. This avoids the visual staleness where the
+    // footer still shows the previous API after a model change.
+    pi.on("model_select", (event, ctx) => {
+        if (!ctx.hasUI) return;
+        const model = event.model as { provider?: string; api?: string } | undefined;
+        if (!isOpencodeGoModel(model)) {
+            if (lastStatusKey) {
+                ctx.ui.setStatus(lastStatusKey, "");
+                lastStatusKey = undefined;
+            }
+            return;
+        }
+        setStatus(ctx, "opencode-go-cache", `cache: ${model?.api ?? "?"}`);
+    });
+
     pi.on("before_provider_request", (event, ctx) => {
         // The whole body is wrapped in a try/catch so that a bug here can
         // never break the LLM call. Worst case: the request goes out
