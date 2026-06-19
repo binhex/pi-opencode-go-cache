@@ -113,7 +113,7 @@ as they're reported.
 
 
 ```bash
-pi install npm:@nnocte/pi-opencode-go-cache
+pi install npm:pi-opencode-go-cache
 ```
 
 ### From GitHub
@@ -126,7 +126,7 @@ pi install git:github.com/nnocte/pi-opencode-go-cache
 ### One-off run (no install)
 
 ```bash
-pi -e npm:@nnocte/pi-opencode-go-cache
+pi -e npm:pi-opencode-go-cache
 pi -e git:github.com/nnocte/pi-opencode-go-cache
 ```
 
