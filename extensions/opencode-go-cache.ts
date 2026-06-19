@@ -71,6 +71,28 @@ function isOpencodeGoModel(model: { provider?: string; baseUrl?: string } | unde
 }
 
 /**
+ * Models for which the OpenCode Go gateway does NOT strip Anthropic-style
+ * cache_control markers, and the downstream API rejects them outright.
+ * For these, we must skip all cache stamping or every request errors with
+ * "Extra inputs are not permitted, field: ...cache_control".
+ *
+ * Substring match against the model id (e.g. "opencode-go/glm-5.2" or
+ * "opencode-go/zhipu-glm"). Add other models here as they're discovered.
+ */
+const UNSUPPORTED_CACHE_MODEL_PATTERNS: readonly string[] = [
+    "glm",
+    "zhipu",
+];
+
+function isUnsupportedForCache(
+    model: { id?: string; provider?: string } | undefined,
+): boolean {
+    if (!model) return false;
+    const id = (model.id ?? "").toLowerCase();
+    return UNSUPPORTED_CACHE_MODEL_PATTERNS.some((p) => id.includes(p));
+}
+
+/**
  * Add an Anthropic-style cache breakpoint to a message. Handles both the
  * string-content form (common in openai-completions) and the array form
  * (common in anthropic-messages and image-bearing openai-completions).
@@ -277,13 +299,26 @@ export default function (pi: ExtensionAPI): void {
         // gets an answer.
         try {
             const model = ctx.model as
-                | { provider?: string; baseUrl?: string; api?: string }
+                | { provider?: string; baseUrl?: string; api?: string; id?: string }
                 | undefined;
             if (!isOpencodeGoModel(model)) {
                 // Clear status when switching to a non-opencode-go model.
                 if (lastStatusKey && ctx.hasUI) {
                     ctx.ui.setStatus(lastStatusKey, "");
                     lastStatusKey = undefined;
+                }
+                return undefined;
+            }
+            if (isUnsupportedForCache(model)) {
+                // Downstream API rejects Anthropic-style cache markers. Bail
+                // out early so the request goes out unchanged.
+                if (lastStatusKey && ctx.hasUI) {
+                    ctx.ui.setStatus(lastStatusKey, "");
+                    lastStatusKey = undefined;
+                }
+                if (ctx.hasUI) {
+                    ctx.ui.setStatus("opencode-go-cache", `cache: skipped (${model.id})`);
+                    lastStatusKey = "opencode-go-cache";
                 }
                 return undefined;
             }

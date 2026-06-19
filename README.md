@@ -91,13 +91,29 @@ Stale markers from previous turns are stripped before re-stamping, so
 breakpoints stay correct across the conversation. A compact `cache: <api>`
 indicator shows up in the TUI footer so you can confirm it's active.
 
+## Known limitations
+
+The OpenCode Go gateway is expected to strip Anthropic-style
+`cache_control` markers and the `prompt_cache_retention` field for
+downstream APIs that don't speak Anthropic, but it does not currently do
+so for **GLM (Zhipu)** models. Stamping them causes those models to
+reject the request with `Extra inputs are not permitted, field: ...cache_control`.
+
+To avoid breaking those models, the extension detects GLM model ids
+(substring match on `glm` / `zhipu`) and **skips all cache stamping** for
+them — the request goes out unchanged and the TUI shows
+`cache: skipped (opencode-go/<model>)` so it's obvious why caching is
+off. Add other affected models to
+`UNSUPPORTED_CACHE_MODEL_PATTERNS` in `extensions/opencode-go-cache.ts`
+as they're reported.
+
 ## Install
 
 ### Recommended (npm)
 
 
 ```bash
-pi install npm:pi-opencode-go-cache
+pi install npm:@nnocte/pi-opencode-go-cache
 ```
 
 ### From GitHub
@@ -110,7 +126,7 @@ pi install git:github.com/nnocte/pi-opencode-go-cache
 ### One-off run (no install)
 
 ```bash
-pi -e npm:pi-opencode-go-cache
+pi -e npm:@nnocte/pi-opencode-go-cache
 pi -e git:github.com/nnocte/pi-opencode-go-cache
 ```
 
