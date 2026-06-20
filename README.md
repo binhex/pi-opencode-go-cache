@@ -28,7 +28,7 @@ sent. It mutates the payload in place:
    │  4. payload.prompt_cache_retention  = "24h"              │
    │  5. Stamp cache_control on system + last 2 user/assistant│
    │     messages + last tool (matches OpenCode CLI's 2+2+1)  │
-   │  6. Show "cache: <api>" in the TUI footer                │
+   │  6. Show "opencode-go-cache: enabled" in the TUI footer  │
    └──────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -88,8 +88,10 @@ Hooks `before_provider_request` and, for any `opencode-go/*` model, sets:
   OpenCode CLI does
 
 Stale markers from previous turns are stripped before re-stamping, so
-breakpoints stay correct across the conversation. A compact `cache: <api>`
-indicator shows up in the TUI footer so you can confirm it's active.
+breakpoints stay correct across the conversation. The TUI footer shows
+`opencode-go-cache: enabled` when caching is active, or
+`opencode-go-cache: unsupported` for models where markers are skipped
+(see [Known limitations](#known-limitations) below).
 
 ## Known limitations
 
@@ -102,7 +104,7 @@ reject the request with `Extra inputs are not permitted, field: ...cache_control
 To avoid breaking those models, the extension detects GLM model ids
 (substring match on `glm` / `zhipu`) and **skips all cache stamping** for
 them — the request goes out unchanged and the TUI shows
-`cache: skipped (opencode-go/<model>)` so it's obvious why caching is
+`opencode-go-cache: unsupported` so it's obvious why caching is
 off. Add other affected models to
 `UNSUPPORTED_CACHE_MODEL_PATTERNS` in `extensions/opencode-go-cache.ts`
 as they're reported.
@@ -148,9 +150,6 @@ are 5–120× cheaper than input:
 | kimi-k2.6          | openai-completions | 5.9×        | free            |
 | minimax-m3         | anthropic-messages | 5×          | free            |
 | minimax-m2.7       | openai-completions | 5×          | free            |
-| glm-5.1            | openai-completions | 5.4×        | free            |
-| glm-5              | openai-completions | 5×          | free            |
-
 On a long coding session, the deepseek and mimo models see roughly
 80–95 % off the input bill after the first call.
 
@@ -176,7 +175,7 @@ there's nothing else to configure.
 
 ## Verification
 
-Tested live against the real gateway. Every one of the 13 opencode-go
+Tested live against the real gateway. Every one of the 11 opencode-go
 models registered in Pi gets `prompt_cache_key=set | retention=24h |
 cache_control markers=2–3` in the payload right before the request is
 sent.

@@ -270,12 +270,6 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.setStatus(key, value);
     };
 
-    pi.on("session_start", (_event, ctx) => {
-        if (ctx.hasUI) {
-            ctx.ui.notify("opencode-go-cache: prompt caching enabled for opencode-go", "info");
-        }
-    });
-
     // Keep the footer status in sync with the active model immediately when
     // the user switches models. This avoids the visual staleness where the
     // footer still shows the previous API after a model change.
@@ -289,7 +283,7 @@ export default function (pi: ExtensionAPI): void {
             }
             return;
         }
-        setStatus(ctx, "opencode-go-cache", `cache: ${model?.api ?? "?"}`);
+        setStatus(ctx, "opencode-go-cache", "opencode-go-cache: enabled");
     });
 
     pi.on("before_provider_request", (event, ctx) => {
@@ -317,7 +311,7 @@ export default function (pi: ExtensionAPI): void {
                     lastStatusKey = undefined;
                 }
                 if (ctx.hasUI) {
-                    ctx.ui.setStatus("opencode-go-cache", `cache: skipped (${model.id})`);
+                    ctx.ui.setStatus("opencode-go-cache", "opencode-go-cache: unsupported");
                     lastStatusKey = "opencode-go-cache";
                 }
                 return undefined;
@@ -355,7 +349,7 @@ export default function (pi: ExtensionAPI): void {
             // Show a compact status in the TUI footer so users can see caching
             // is active.
             if (ctx.hasUI) {
-                setStatus(ctx, "opencode-go-cache", `cache: ${api ?? "?"}`);
+                setStatus(ctx, "opencode-go-cache", "opencode-go-cache: enabled");
             }
 
             return payloadObj;
