@@ -73,9 +73,13 @@ automatically, but only with:
 - no explicit `cache_control` breakpoints
 
 Pi's built-in `openai-completions` provider never sets `prompt_cache_key`
-or `prompt_cache_retention` for `opencode-go`, and adds at most one
-`cache_control` marker — so you pay full input price on every call and
-lose the cache between long pauses.
+or `prompt_cache_retention` for `opencode-go` (it only sets them for
+`api.openai.com` URLs, or when `PI_CACHE_RETENTION=long`), and it adds
+**zero** `cache_control` markers for opencode-go models — pi-ai only
+stamps `cache_control` when a model's compat sets
+`cacheControlFormat: "anthropic"`, and the opencode-go models don't. So
+you pay full input price on every call and lose the cache between long
+pauses.
 
 ## What it does
 
@@ -166,19 +170,25 @@ OpenCode CLI does to get cheap cache hits on opencode-go:
 | Works for `anthropic-messages` models too (qwen, minimax)          |             ❌             |      ✅       |        ✅        |
 | Single source of truth (no env vars, no `models.json` overrides)   |             ❌             |      ✅       |        ✅        |
 
-Pi's `openai-completions` provider already drops `cache_control` markers
-for `openai-completions` when `cacheControlFormat: "anthropic"` is set in
-`~/.pi/agent/models.json` — but only on the system prompt + last user
-message (1 breakpoint) and only for that one API. This extension does the
-full OpenCode CLI recipe for every opencode-go model in one place, so
-there's nothing else to configure.
+Pi's `openai-completions` provider does stamp `cache_control` when a
+model's compat sets `cacheControlFormat: "anthropic"` (configurable via
+`~/.pi/agent/models.json`) — on the system prompt, last tool, and last
+conversation message (3 breakpoints) — but the opencode-go models don't
+set that flag, so they get zero breakpoints unless you configure it
+per-model, and even then it's 3 breakpoints versus OpenCode CLI's 2+2+1
+strategy. This extension applies the full OpenCode CLI recipe (2 system
++ 2 final user/assistant + last tool) to every opencode-go model in one
+place, for both `openai-completions` and `anthropic-messages` APIs, with
+nothing else to configure.
 
 ## Verification
 
-Tested live against the real gateway. Every one of the 11 opencode-go
-models registered in Pi gets `prompt_cache_key=set | retention=24h |
-cache_control markers=2–3` in the payload right before the request is
-sent.
+Tested live against the real gateway. Every one of the 13 opencode-go
+models registered in Pi is handled: the 11 cacheable models get
+`prompt_cache_key=set | retention=24h | cache_control markers=2–3` in
+the payload right before the request is sent; the 2 GLM models
+(`glm-5.1`, `glm-5.2`) are detected as unsupported and skipped so their
+requests go out unchanged.
 
 ## Uninstall
 

@@ -20,9 +20,11 @@
  * Pi's built-in openai-completions provider only sets `prompt_cache_key` for
  * `api.openai.com` URLs (or when `cacheRetention === "long"`), and it never
  * adds `cache_control` markers to openai-completions messages for
- * opencode-go. Its anthropic provider does add `cache_control`, but only on
- * the system prompt + last tool + last user message (1 breakpoint) and never
- * sets `prompt_cache_retention`.
+ * opencode-go: pi-ai only stamps cache_control when a model's compat sets
+ * `cacheControlFormat: "anthropic"`, and the opencode-go models don't. Its
+ * anthropic-messages provider does add `cache_control` (system prompt + last
+ * tool + last conversation message = 3 breakpoints) when that flag is set,
+ * but never sets `prompt_cache_retention`.
  *
  * This extension applies the full OpenCode CLI caching strategy to every
  * opencode-go request, for both `openai-completions` and `anthropic-messages`
