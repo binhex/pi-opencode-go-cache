@@ -76,6 +76,9 @@ const CACHE_CONTROL_EPHEMERAL = Object.freeze(
 /** Cumulative cache usage across all turns in this session. Assumes one-session-per-process (module-level state). */
 const cacheStats = { totalInputTokens: 0, totalCacheHitTokens: 0 };
 
+/** Per-message cache hit ratio from the last assistant response. */
+let lastMessagePct = 0;
+
 /**
  * Clamp the prompt cache key to the gateway's documented max length
  * (matches the helper in `@earendil-works/pi-ai/providers/openai-prompt-cache`).
@@ -396,12 +399,21 @@ export default function (pi: ExtensionAPI): void {
       }
       cacheStats.totalInputTokens += tokens.inputTokens;
       cacheStats.totalCacheHitTokens += tokens.cachedTokens;
-      const rawPct =
-        cacheStats.totalInputTokens > 0
-          ? Math.round((cacheStats.totalCacheHitTokens / cacheStats.totalInputTokens) * 100)
-          : 0;
-      const pct = Number.isFinite(rawPct) ? rawPct : 0;
-      const label = cacheStats.totalInputTokens > 0 ? `opencode-go-cache: ${pct}%` : 'opencode-go-cache: --';
+
+      // Cumulative percentage
+      const cuRaw = cacheStats.totalInputTokens > 0
+        ? Math.round((cacheStats.totalCacheHitTokens / cacheStats.totalInputTokens) * 100)
+        : 0;
+      const cuPct = Number.isFinite(cuRaw) ? cuRaw : 0;
+
+      // Per-message percentage (this response only)
+      const tbRaw = Math.round((tokens.cachedTokens / tokens.inputTokens) * 100);
+      const tbPct = Number.isFinite(tbRaw) ? tbRaw : 0;
+      lastMessagePct = tbPct;
+
+      const label = cacheStats.totalInputTokens > 0
+        ? `opencode-go-cache: CU${cuPct}% TB${tbPct}%`
+        : 'opencode-go-cache: --';
       setStatus(ctx, 'opencode-go-cache', label);
     } catch {
       // Silently ignore — never break the LLM flow.
@@ -413,6 +425,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on('session_shutdown', (_event, ctx) => {
     cacheStats.totalInputTokens = 0;
     cacheStats.totalCacheHitTokens = 0;
+    lastMessagePct = 0;
     if (lastStatusKey && ctx.hasUI) {
       ctx.ui.setStatus(lastStatusKey, '');
       lastStatusKey = undefined;
