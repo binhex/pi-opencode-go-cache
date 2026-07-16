@@ -52,12 +52,12 @@ Never blocks or breaks the LLM flow.
 
 **Behavior:**
 
-| Value | Effect |
-|---|---|
-| Unset | Default `"1h"` (unchanged behavior) |
-| `"2h"`, `"30m"`, etc. | Sets `cache_control.ttl` to the given value |
-| `"0"` or `"off"` | Omits `ttl` entirely — sends bare `{type:"ephemeral"}` |
-| Invalid | Warns at module load, falls back to `"1h"` |
+| Value                 | Effect                                                 |
+| --------------------- | ------------------------------------------------------ |
+| Unset                 | Default `"1h"` (unchanged behavior)                    |
+| `"2h"`, `"30m"`, etc. | Sets `cache_control.ttl` to the given value            |
+| `"0"` or `"off"`      | Omits `ttl` entirely — sends bare `{type:"ephemeral"}` |
+| Invalid               | Warns at module load, falls back to `"1h"`             |
 
 **Implementation:** Read `process.env.PI_OPENCODE_CACHE_TTL` once at module
 load time (top-level). Validate with regex `/^(\d+[hm]|0|off)$/i`. Cache the

@@ -12,9 +12,9 @@
 
 ## File Map
 
-| File | Action | Responsibility |
-|---|---|---|
-| `extensions/opencode-go-cache.ts` | Modify | All three improvements |
+| File                                                                                | Action     | Responsibility                      |
+| ----------------------------------------------------------------------------------- | ---------- | ----------------------------------- |
+| `extensions/opencode-go-cache.ts`                                                   | Modify     | All three improvements              |
 | `~/.pi/agent/npm/node_modules/pi-opencode-go-cache/extensions/opencode-go-cache.ts` | Sync after | Installed copy (Pi loads from here) |
 
 ---
@@ -22,6 +22,7 @@
 ### Task 1: Optimize `stripStaleCacheControl` — non-recursive targeted clear
 
 **Files:**
+
 - Modify: `extensions/opencode-go-cache.ts` (replace `stripStaleCacheControl` function, lines 247-272)
 
 **Rationale:** The current recursive `visit()` walks every nested object in `messages`, `system`, and `tools` looking for `cache_control` markers. Markers only ever appear at known surfaces: message content parts, system content blocks, and tool definition objects. We don't need a recursive tree walk — a single-level iteration over these known positions catches all stale markers while being ~15 lines shorter and eliminating recursion overhead.
@@ -38,37 +39,37 @@ Replace the entire function (lines 247-272) with:
  * deeper than one level in these structures.
  */
 function stripStaleCacheControl(payload: Record<string, unknown>): void {
-    const clearContent = (content: unknown): void => {
-        if (!Array.isArray(content)) return;
-        for (const part of content) {
-            if (!part || typeof part !== "object") continue;
-            const p = part as Record<string, unknown>;
-            if (p.cache_control && typeof p.cache_control === "object") {
-                const cc = p.cache_control as Record<string, unknown>;
-                if (cc.type === "ephemeral") delete p.cache_control;
-            }
-        }
-    };
-
-    // Messages: clear markers from each message's content parts.
-    if (Array.isArray(payload.messages)) {
-        for (const msg of payload.messages as Array<Record<string, unknown>>) {
-            clearContent(msg.content);
-        }
+  const clearContent = (content: unknown): void => {
+    if (!Array.isArray(content)) return;
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      const p = part as Record<string, unknown>;
+      if (p.cache_control && typeof p.cache_control === 'object') {
+        const cc = p.cache_control as Record<string, unknown>;
+        if (cc.type === 'ephemeral') delete p.cache_control;
+      }
     }
+  };
 
-    // System prompt: can be a string (no marker possible) or content blocks.
-    clearContent(payload.system);
-
-    // Tools: clear marker from the top-level tool object.
-    if (Array.isArray(payload.tools)) {
-        for (const tool of payload.tools as Array<Record<string, unknown>>) {
-            if (tool.cache_control && typeof tool.cache_control === "object") {
-                const cc = tool.cache_control as Record<string, unknown>;
-                if (cc.type === "ephemeral") delete tool.cache_control;
-            }
-        }
+  // Messages: clear markers from each message's content parts.
+  if (Array.isArray(payload.messages)) {
+    for (const msg of payload.messages as Array<Record<string, unknown>>) {
+      clearContent(msg.content);
     }
+  }
+
+  // System prompt: can be a string (no marker possible) or content blocks.
+  clearContent(payload.system);
+
+  // Tools: clear marker from the top-level tool object.
+  if (Array.isArray(payload.tools)) {
+    for (const tool of payload.tools as Array<Record<string, unknown>>) {
+      if (tool.cache_control && typeof tool.cache_control === 'object') {
+        const cc = tool.cache_control as Record<string, unknown>;
+        if (cc.type === 'ephemeral') delete tool.cache_control;
+      }
+    }
+  }
 }
 ```
 
@@ -95,6 +96,7 @@ cp /data/forks/pi-opencode-go-cache/extensions/opencode-go-cache.ts \
 - [ ] **Step 4: Manual smoke test**
 
 In a running Pi session with an opencode-go model active:
+
 1. Send a prompt and confirm it completes without error
 2. Confirm the footer shows `opencode-go-cache: enabled`
 3. Send a second prompt and confirm no errors
@@ -112,6 +114,7 @@ git commit -m "refactor: replace recursive stripStaleCacheControl with non-recur
 ### Task 2: TTL Env Config (`PI_OPENCODE_CACHE_TTL`)
 
 **Files:**
+
 - Modify: `extensions/opencode-go-cache.ts` (replace `CACHE_CONTROL_EPHEMERAL` constant, lines 47-51)
 
 **Rationale:** The `ttl: "1h"` is hardcoded. Let users override it via `PI_OPENCODE_CACHE_TTL` env var. Supports values like `"2h"`, `"30m"`, `"0"`/`"off"` (omit ttl entirely). Invalid values warn and fall back to `"1h"`.
@@ -133,20 +136,18 @@ Replace lines 47-51:
 const TTL_VALUE = resolveCacheTTL();
 
 function resolveCacheTTL(): string | undefined {
-    const raw = process.env.PI_OPENCODE_CACHE_TTL;
-    if (!raw) return "1h"; // default
-    if (/^\d+[hm]$/i.test(raw)) return raw;
-    if (/^(0|off)$/i.test(raw)) return undefined;
-    console.warn(
-        `opencode-go-cache: PI_OPENCODE_CACHE_TTL="${raw}" is invalid (expected e.g. "30m", "2h", "0", "off"). Falling back to "1h".`
-    );
-    return "1h";
+  const raw = process.env.PI_OPENCODE_CACHE_TTL;
+  if (!raw) return '1h'; // default
+  if (/^\d+[hm]$/i.test(raw)) return raw;
+  if (/^(0|off)$/i.test(raw)) return undefined;
+  console.warn(
+    `opencode-go-cache: PI_OPENCODE_CACHE_TTL="${raw}" is invalid (expected e.g. "30m", "2h", "0", "off"). Falling back to "1h".`,
+  );
+  return '1h';
 }
 
 const CACHE_CONTROL_EPHEMERAL = Object.freeze(
-    TTL_VALUE !== undefined
-        ? { type: "ephemeral" as const, ttl: TTL_VALUE }
-        : { type: "ephemeral" as const },
+  TTL_VALUE !== undefined ? { type: 'ephemeral' as const, ttl: TTL_VALUE } : { type: 'ephemeral' as const },
 );
 ```
 
@@ -198,6 +199,7 @@ git commit -m "feat: add PI_OPENCODE_CACHE_TTL env var for configurable cache_co
 ### Task 3: Response Hook & TUI Cache Stats
 
 **Files:**
+
 - Modify: `extensions/opencode-go-cache.ts` (add `message_end` hook handler in `export default function`, lines 275-375)
 
 **Rationale:** The extension stamps cache instrumentation but never checks if it works. Add a `message_end` hook that filters for assistant messages, parses `event.message.usage` for cache hit tokens (handling both `openai-completions` and `anthropic-messages` formats), tracks cumulative stats, and updates the footer from `"opencode-go-cache: enabled"` to `"opencode-go-cache: 87%"`.
@@ -223,32 +225,32 @@ After `stripStaleCacheControl` and before `export default`, add:
  * Returns null if parsing fails or no cache data is present.
  */
 function extractCacheHitRatio(usage: unknown): number | null {
-    if (!usage || typeof usage !== "object") return null;
-    const u = usage as Record<string, unknown>;
-    let cachedTokens: number | undefined;
-    let inputTokens: number | undefined;
+  if (!usage || typeof usage !== 'object') return null;
+  const u = usage as Record<string, unknown>;
+  let cachedTokens: number | undefined;
+  let inputTokens: number | undefined;
 
-    // Anthropic-messages format: cache_read_input_tokens + input_tokens
-    if (typeof u.cache_read_input_tokens === "number" && typeof u.input_tokens === "number") {
-        cachedTokens = u.cache_read_input_tokens;
-        inputTokens = u.input_tokens;
+  // Anthropic-messages format: cache_read_input_tokens + input_tokens
+  if (typeof u.cache_read_input_tokens === 'number' && typeof u.input_tokens === 'number') {
+    cachedTokens = u.cache_read_input_tokens;
+    inputTokens = u.input_tokens;
+  }
+  // OpenAI-completions format: prompt_tokens_details.cached_tokens + prompt_tokens
+  if (cachedTokens === undefined) {
+    const details = u.prompt_tokens_details;
+    if (details && typeof details === 'object') {
+      const d = details as Record<string, unknown>;
+      if (typeof d.cached_tokens === 'number' && typeof u.prompt_tokens === 'number') {
+        cachedTokens = d.cached_tokens;
+        inputTokens = u.prompt_tokens;
+      }
     }
-    // OpenAI-completions format: prompt_tokens_details.cached_tokens + prompt_tokens
-    if (cachedTokens === undefined) {
-        const details = u.prompt_tokens_details;
-        if (details && typeof details === "object") {
-            const d = details as Record<string, unknown>;
-            if (typeof d.cached_tokens === "number" && typeof u.prompt_tokens === "number") {
-                cachedTokens = d.cached_tokens;
-                inputTokens = u.prompt_tokens;
-            }
-        }
-    }
+  }
 
-    if (cachedTokens === undefined || inputTokens === undefined || inputTokens <= 0) {
-        return null;
-    }
-    return cachedTokens / inputTokens;
+  if (cachedTokens === undefined || inputTokens === undefined || inputTokens <= 0) {
+    return null;
+  }
+  return cachedTokens / inputTokens;
 }
 ```
 
@@ -257,60 +259,59 @@ function extractCacheHitRatio(usage: unknown): number | null {
 Inside `export default function (pi: ExtensionAPI): void {`, after the existing hooks (before the closing `}`), add:
 
 ```typescript
-    // Cache hit observability: parse assistant message usage and update footer.
-    pi.on("message_end", (event, ctx) => {
-        try {
-            if (!ctx.hasUI) return;
-            const msg = event.message as { role?: string; usage?: unknown } | undefined;
-            if (!msg || msg.role !== "assistant") return;
+// Cache hit observability: parse assistant message usage and update footer.
+pi.on('message_end', (event, ctx) => {
+  try {
+    if (!ctx.hasUI) return;
+    const msg = event.message as { role?: string; usage?: unknown } | undefined;
+    if (!msg || msg.role !== 'assistant') return;
 
-            // Only track stats for opencode-go models.
-            const model = ctx.model as { provider?: string } | undefined;
-            if (!model || model.provider !== PROVIDER_ID) return;
-            if (isUnsupportedForCache(model as { id?: string; provider?: string })) return;
+    // Only track stats for opencode-go models.
+    const model = ctx.model as { provider?: string } | undefined;
+    if (!model || model.provider !== PROVIDER_ID) return;
+    if (isUnsupportedForCache(model as { id?: string; provider?: string })) return;
 
-            const ratio = extractCacheHitRatio(msg.usage);
-            if (ratio === null) {
-                // No cache data yet (first turn or provider didn't return usage).
-                if (lastStatusKey) {
-                    setStatus(ctx, "opencode-go-cache", "opencode-go-cache: --");
-                }
-                return;
-            }
+    const ratio = extractCacheHitRatio(msg.usage);
+    if (ratio === null) {
+      // No cache data yet (first turn or provider didn't return usage).
+      if (lastStatusKey) {
+        setStatus(ctx, 'opencode-go-cache', 'opencode-go-cache: --');
+      }
+      return;
+    }
 
-            // Accumulate stats and show running percentage.
-            const u = msg.usage as Record<string, unknown>;
-            // Re-extract raw numbers for accumulation (extractCacheHitRatio returns ratio only).
-            let inputTokens = 0;
-            let cachedTokens = 0;
-            if (typeof u.cache_read_input_tokens === "number" && typeof u.input_tokens === "number") {
-                cachedTokens = u.cache_read_input_tokens;
-                inputTokens = u.input_tokens;
-            } else {
-                const details = u.prompt_tokens_details;
-                if (details && typeof details === "object") {
-                    const d = details as Record<string, unknown>;
-                    if (typeof d.cached_tokens === "number" && typeof u.prompt_tokens === "number") {
-                        cachedTokens = d.cached_tokens;
-                        inputTokens = u.prompt_tokens;
-                    }
-                }
-            }
-
-            cacheStats.totalInputTokens += inputTokens;
-            cacheStats.totalCacheHitTokens += cachedTokens;
-            const pct = cacheStats.totalInputTokens > 0
-                ? Math.round((cacheStats.totalCacheHitTokens / cacheStats.totalInputTokens) * 100)
-                : 0;
-            const label = cacheStats.totalInputTokens > 0
-                ? `opencode-go-cache: ${pct}%`
-                : "opencode-go-cache: --";
-
-            setStatus(ctx, "opencode-go-cache", label);
-        } catch {
-            // Silently ignore parse errors — never break the LLM flow.
+    // Accumulate stats and show running percentage.
+    const u = msg.usage as Record<string, unknown>;
+    // Re-extract raw numbers for accumulation (extractCacheHitRatio returns ratio only).
+    let inputTokens = 0;
+    let cachedTokens = 0;
+    if (typeof u.cache_read_input_tokens === 'number' && typeof u.input_tokens === 'number') {
+      cachedTokens = u.cache_read_input_tokens;
+      inputTokens = u.input_tokens;
+    } else {
+      const details = u.prompt_tokens_details;
+      if (details && typeof details === 'object') {
+        const d = details as Record<string, unknown>;
+        if (typeof d.cached_tokens === 'number' && typeof u.prompt_tokens === 'number') {
+          cachedTokens = d.cached_tokens;
+          inputTokens = u.prompt_tokens;
         }
-    });
+      }
+    }
+
+    cacheStats.totalInputTokens += inputTokens;
+    cacheStats.totalCacheHitTokens += cachedTokens;
+    const pct =
+      cacheStats.totalInputTokens > 0
+        ? Math.round((cacheStats.totalCacheHitTokens / cacheStats.totalInputTokens) * 100)
+        : 0;
+    const label = cacheStats.totalInputTokens > 0 ? `opencode-go-cache: ${pct}%` : 'opencode-go-cache: --';
+
+    setStatus(ctx, 'opencode-go-cache', label);
+  } catch {
+    // Silently ignore parse errors — never break the LLM flow.
+  }
+});
 ```
 
 - [ ] **Step 4: Reset stats on session shutdown**
@@ -318,16 +319,16 @@ Inside `export default function (pi: ExtensionAPI): void {`, after the existing 
 Update the existing `session_shutdown` handler to also reset `cacheStats`. Replace the current handler block (~line 370-375) with:
 
 ```typescript
-    // Drop the status and reset stats when the session ends so we don't
-    // leave a stale entry on the next session's footer.
-    pi.on("session_shutdown", (_event, ctx) => {
-        cacheStats.totalInputTokens = 0;
-        cacheStats.totalCacheHitTokens = 0;
-        if (lastStatusKey && ctx.hasUI) {
-            ctx.ui.setStatus(lastStatusKey, "");
-            lastStatusKey = undefined;
-        }
-    });
+// Drop the status and reset stats when the session ends so we don't
+// leave a stale entry on the next session's footer.
+pi.on('session_shutdown', (_event, ctx) => {
+  cacheStats.totalInputTokens = 0;
+  cacheStats.totalCacheHitTokens = 0;
+  if (lastStatusKey && ctx.hasUI) {
+    ctx.ui.setStatus(lastStatusKey, '');
+    lastStatusKey = undefined;
+  }
+});
 ```
 
 - [ ] **Step 5: Update `model_select` handler for consistency**
@@ -335,34 +336,43 @@ Update the existing `session_shutdown` handler to also reset `cacheStats`. Repla
 The `model_select` handler currently sets `"opencode-go-cache: enabled"` for opencode-go models. Now that the footer can show a percentage, we want model switches to show `"opencode-go-cache: --"` (until the next response arrives) instead of `"enabled"`. Update the `model_select` handler (replace the `setStatus` call at the end):
 
 Change:
+
 ```typescript
-        setStatus(ctx, "opencode-go-cache", "opencode-go-cache: enabled");
+setStatus(ctx, 'opencode-go-cache', 'opencode-go-cache: enabled');
 ```
+
 To:
+
 ```typescript
-        setStatus(ctx, "opencode-go-cache", "opencode-go-cache: --");
+setStatus(ctx, 'opencode-go-cache', 'opencode-go-cache: --');
 ```
 
 - [ ] **Step 6: Also update `before_provider_request` footer text**
 
 In the `before_provider_request` handler, change the success-path footer from `"enabled"` to `"--"` (the `message_end` hook will update it to a percentage once the response arrives). Replace:
+
 ```typescript
-                setStatus(ctx, "opencode-go-cache", "opencode-go-cache: enabled");
+setStatus(ctx, 'opencode-go-cache', 'opencode-go-cache: enabled');
 ```
+
 With:
+
 ```typescript
-                // Footer will be updated with cache hit % by message_end hook.
-                // Only set if we haven't already computed a percentage.
-                if (!lastStatusKey || !ctx.ui) {
-                    /* first-run — message_end will set the value */;
-                }
+// Footer will be updated with cache hit % by message_end hook.
+// Only set if we haven't already computed a percentage.
+if (!lastStatusKey || !ctx.ui) {
+  /* first-run — message_end will set the value */
+}
 ```
+
 Actually, simpler: just remove the setStatus call from `before_provider_request` entirely. The `message_end` hook handles all footer updates now. Remove the three lines:
+
 ```typescript
-            if (ctx.hasUI) {
-                setStatus(ctx, "opencode-go-cache", "opencode-go-cache: enabled");
-            }
+if (ctx.hasUI) {
+  setStatus(ctx, 'opencode-go-cache', 'opencode-go-cache: enabled');
+}
 ```
+
 from the success path of `before_provider_request`.
 
 - [ ] **Step 7: Verify syntax**
@@ -381,6 +391,7 @@ cp /data/forks/pi-opencode-go-cache/extensions/opencode-go-cache.ts \
 - [ ] **Step 9: Manual two-turn smoke test**
 
 In a Pi session with an opencode-go model (e.g., `deepseek-v4-flash`):
+
 1. Send a prompt — footer should show `opencode-go-cache: --` before first response, then `opencode-go-cache: 0%` after (first turn has no cache hits)
 2. Send a second prompt — footer should show `opencode-go-cache: NN%` with a positive percentage after the second response
 3. Switch to a non-opencode-go model — footer should clear
@@ -399,6 +410,7 @@ git commit -m "feat: add cache hit observability with percentage in TUI footer"
 ### Task 4: Final Verification & Bump
 
 **Files:**
+
 - Modify: `package.json` (version bump)
 
 - [ ] **Step 1: Run full two-turn test with all improvements active**

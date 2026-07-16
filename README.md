@@ -50,7 +50,7 @@ the payload in place:
    up to 5 breakpoints — the stable prefix (system) plus the moving tail
    (recent turns + tool schemas).
 5. Show `opencode-go-cache: enabled` in the TUI footer so you can see it's
-  working.
+   working.
 
 None of this adds input tokens. `cache_control` is metadata attached to
 existing message parts, and `prompt_cache_key` / `prompt_cache_retention`
@@ -89,12 +89,12 @@ I ran both through a local logging proxy (plain HTTP, pointed at the real
 gateway) and captured the actual outgoing JSON for the same prompt on the
 same model. Here's what each one sends:
 
-| field                                | pi + this extension           | opencode CLI (openai-completions) | opencode CLI (anthropic-messages) |
-| ------------------------------------ | ----------------------------- | --------------------------------- | --------------------------------- |
-| `prompt_cache_key` (per-session)     | **set**                       | not sent                          | not sent                          |
-| `prompt_cache_retention`             | **`"24h"`**                   | not sent                          | not sent                          |
-| `cache_control` markers              | **3–5** (`ttl:"1h"`)          | **0**                             | 2–3 (`{type:"ephemeral"}`, no ttl) |
-| effective marker TTL                 | **1 hour**                    | —                                 | ~5 min (Anthropic default)        |
+| field                            | pi + this extension  | opencode CLI (openai-completions) | opencode CLI (anthropic-messages)  |
+| -------------------------------- | -------------------- | --------------------------------- | ---------------------------------- |
+| `prompt_cache_key` (per-session) | **set**              | not sent                          | not sent                           |
+| `prompt_cache_retention`         | **`"24h"`**          | not sent                          | not sent                           |
+| `cache_control` markers          | **3–5** (`ttl:"1h"`) | **0**                             | 2–3 (`{type:"ephemeral"}`, no ttl) |
+| effective marker TTL             | **1 hour**           | —                                 | ~5 min (Anthropic default)         |
 
 The short version: opencode CLI sends **zero** cache instrumentation for
 the openai-completions models (deepseek, mimo, kimi) — it relies entirely
@@ -122,19 +122,19 @@ most opencode-go models anyway.
 Cache reads are 5–120× cheaper than input tokens on opencode-go. The
 extension makes those reads actually happen and persist:
 
-| Model              | API                | Cache ratio | cacheWrite cost |
-| ------------------ | ------------------ | ----------- | --------------- |
-| deepseek-v4-pro    | openai-completions | 120×        | free            |
-| deepseek-v4-flash  | openai-completions | 50×         | free            |
-| mimo-v2.5-pro      | openai-completions | 120×        | free            |
-| mimo-v2.5          | openai-completions | 50×         | free            |
-| qwen3.6-plus       | openai-completions | 10×         | $0.625/M        |
-| qwen3.7-plus       | anthropic-messages | 10×         | $0.50/M         |
-| qwen3.7-max        | anthropic-messages | 5×          | $3.125/M        |
-| kimi-k2.7-code     | openai-completions | 5×          | free            |
-| kimi-k2.6          | openai-completions | 5.9×        | free            |
-| minimax-m3         | anthropic-messages | 5×          | free            |
-| minimax-m2.7       | openai-completions | 5×          | free            |
+| Model             | API                | Cache ratio | cacheWrite cost |
+| ----------------- | ------------------ | ----------- | --------------- |
+| deepseek-v4-pro   | openai-completions | 120×        | free            |
+| deepseek-v4-flash | openai-completions | 50×         | free            |
+| mimo-v2.5-pro     | openai-completions | 120×        | free            |
+| mimo-v2.5         | openai-completions | 50×         | free            |
+| qwen3.6-plus      | openai-completions | 10×         | $0.625/M        |
+| qwen3.7-plus      | anthropic-messages | 10×         | $0.50/M         |
+| qwen3.7-max       | anthropic-messages | 5×          | $3.125/M        |
+| kimi-k2.7-code    | openai-completions | 5×          | free            |
+| kimi-k2.6         | openai-completions | 5.9×        | free            |
+| minimax-m3        | anthropic-messages | 5×          | free            |
+| minimax-m2.7      | openai-completions | 5×          | free            |
 
 On a long coding session, the deepseek and mimo models end up around
 80–95% off the input bill after the first call.
@@ -143,13 +143,13 @@ On a long coding session, the deepseek and mimo models end up around
 
 That env var gets you part of the way, but it can't get you all of it:
 
-|                                                  | `PI_CACHE_RETENTION=long` | this extension |
-| ------------------------------------------------ | :-----------------------: | :------------: |
-| `prompt_cache_retention: "24h"`                  | ✅                        | ✅             |
-| `prompt_cache_key` (per-session)                 | ✅                        | ✅             |
-| `cache_control` breakpoints on every model       | ❌                        | ✅             |
-| Works for `anthropic-messages` models too        | ❌                        | ✅             |
-| No env vars or `models.json` overrides needed    | ❌                        | ✅             |
+|                                               | `PI_CACHE_RETENTION=long` | this extension |
+| --------------------------------------------- | :-----------------------: | :------------: |
+| `prompt_cache_retention: "24h"`               |            ✅             |       ✅       |
+| `prompt_cache_key` (per-session)              |            ✅             |       ✅       |
+| `cache_control` breakpoints on every model    |            ❌             |       ✅       |
+| Works for `anthropic-messages` models too     |            ❌             |       ✅       |
+| No env vars or `models.json` overrides needed |            ❌             |       ✅       |
 
 You could also hand-edit `~/.pi/agent/models.json` to set
 `compat.cacheControlFormat: "anthropic"` per model, which gets pi-ai to
@@ -205,8 +205,8 @@ test are reproducible — point either client at a proxy on
 `127.0.0.1:8420` with `opencode-go.baseUrl` overridden and you'll see
 the same fields.
 
-One thing I verified is that the fields are *sent*. Whether the gateway
-*honors* them (i.e. actually returns `cacheRead > 0` on turn 2) is a
+One thing I verified is that the fields are _sent_. Whether the gateway
+_honors_ them (i.e. actually returns `cacheRead > 0` on turn 2) is a
 separate question — the extension was originally written after live
 testing showed cache going from 0/N to N/N on the second call, but I
 didn't reproduce that two-turn hit test here. The fields are all
