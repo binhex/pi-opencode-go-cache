@@ -76,9 +76,6 @@ const CACHE_CONTROL_EPHEMERAL = Object.freeze(
 /** Cumulative cache usage across all turns in this session. Assumes one-session-per-process (module-level state). */
 const cacheStats = { totalInputTokens: 0, totalCacheHitTokens: 0 };
 
-/** Per-message cache hit ratio from the last assistant response. */
-let lastMessagePct = 0;
-
 /**
  * Clamp the prompt cache key to the gateway's documented max length
  * (matches the helper in `@earendil-works/pi-ai/providers/openai-prompt-cache`).
@@ -409,7 +406,6 @@ export default function (pi: ExtensionAPI): void {
       // Per-message percentage (this response only)
       const tbRaw = Math.round((tokens.cachedTokens / tokens.inputTokens) * 100);
       const tbPct = Number.isFinite(tbRaw) ? tbRaw : 0;
-      lastMessagePct = tbPct;
 
       const label = cacheStats.totalInputTokens > 0
         ? `opencode-go-cache: CU${cuPct}% TB${tbPct}%`
@@ -425,7 +421,6 @@ export default function (pi: ExtensionAPI): void {
   pi.on('session_shutdown', (_event, ctx) => {
     cacheStats.totalInputTokens = 0;
     cacheStats.totalCacheHitTokens = 0;
-    lastMessagePct = 0;
     if (lastStatusKey && ctx.hasUI) {
       ctx.ui.setStatus(lastStatusKey, '');
       lastStatusKey = undefined;
