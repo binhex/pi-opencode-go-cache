@@ -44,7 +44,7 @@
 
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
-const PROVIDER_ID = 'opencode-go';
+const PROVIDER_IDS = ['opencode-go', 'opencode-zen'];
 const MAX_PROMPT_CACHE_KEY_LEN = 64;
 
 /**
@@ -90,7 +90,7 @@ function clampPromptCacheKey(key: string | undefined): string | undefined {
 
 function isOpencodeGoModel(model: { provider?: string; baseUrl?: string } | undefined): boolean {
   if (!model) return false;
-  if (model.provider !== PROVIDER_ID) return false;
+  if (!model || !PROVIDER_IDS.includes(model.provider)) return false;
   return true;
 }
 
@@ -387,7 +387,7 @@ export default function (pi: ExtensionAPI): void {
       const msg = event.message as { role?: string; usage?: unknown } | undefined;
       if (!msg || msg.role !== 'assistant') return;
       const model = ctx.model as { provider?: string } | undefined;
-      if (!model || model.provider !== PROVIDER_ID) return;
+      if (!model || !PROVIDER_IDS.includes(model.provider)) return;
       if (isUnsupportedForCache(model as { id?: string; provider?: string })) return;
       const tokens = extractUsageTokens(msg.usage);
       if (tokens === null) {
