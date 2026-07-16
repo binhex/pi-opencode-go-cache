@@ -279,9 +279,10 @@ function stripStaleCacheControl(payload: Record<string, unknown>): void {
 function extractUsageTokens(usage: unknown): { cachedTokens: number; inputTokens: number } | null {
   if (!usage || typeof usage !== 'object') return null;
   const u = usage as Record<string, unknown>;
-  // Pi normalizes usage into its own format: cacheRead (cache hits) + input (total input)
+  // Pi normalizes usage: cacheRead (cache hits) + input (fresh tokens only).
+  // Total input = cacheRead + input since cacheRead counts toward total input too.
   if (typeof u.cacheRead === 'number' && typeof u.input === 'number') {
-    return { cachedTokens: u.cacheRead, inputTokens: u.input };
+    return { cachedTokens: u.cacheRead, inputTokens: u.cacheRead + u.input };
   }
   return null;
 }
