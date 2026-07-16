@@ -279,24 +279,11 @@ function stripStaleCacheControl(payload: Record<string, unknown>): void {
 function extractUsageTokens(usage: unknown): { cachedTokens: number; inputTokens: number } | null {
   if (!usage || typeof usage !== 'object') return null;
   const u = usage as Record<string, unknown>;
-  let cachedTokens: number | undefined;
-  let inputTokens: number | undefined;
-  if (typeof u.cache_read_input_tokens === 'number' && typeof u.input_tokens === 'number') {
-    cachedTokens = u.cache_read_input_tokens;
-    inputTokens = u.input_tokens;
+  // Pi normalizes usage into its own format: cacheRead (cache hits) + input (total input)
+  if (typeof u.cacheRead === 'number' && typeof u.input === 'number') {
+    return { cachedTokens: u.cacheRead, inputTokens: u.input };
   }
-  if (cachedTokens === undefined) {
-    const details = u.prompt_tokens_details;
-    if (details && typeof details === 'object') {
-      const d = details as Record<string, unknown>;
-      if (typeof d.cached_tokens === 'number' && typeof u.prompt_tokens === 'number') {
-        cachedTokens = d.cached_tokens;
-        inputTokens = u.prompt_tokens;
-      }
-    }
-  }
-  if (cachedTokens === undefined || inputTokens === undefined || inputTokens <= 0) return null;
-  return { cachedTokens, inputTokens };
+  return null;
 }
 
 export default function (pi: ExtensionAPI): void {
